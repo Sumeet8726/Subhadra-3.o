@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Voice Biometrics with Deepgram</title>
+  <script async id="vectorshift-widget" src="https://app.vectorshift.ai/chatWidget.js" object-id="67934da74b8b59287ba0ff4c" object-height="600px" object-width="400px" object-variant="voicebots"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      margin: 0;
+      padding: 20px;
+    }
+    #response {
+      margin-top: 20px;
+      font-size: 1.2rem;
+      color: #333;
+    }
+    #startListening {
+      padding: 10px 20px;
+      font-size: 1rem;
+      border: none;
+      background-color: #007bff;
+      color: #fff;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #startListening:disabled {
+      background-color: #ccc;
+    }
+  </style>
+</head>
+<body>
+  <h1>Secure Voice-Activated Commands</h1>
+  <p>Click the button, say your phrase, and authenticate your voice.</p>
+  <button id="startListening">Start Listening</button>
+  <p id="response">Waiting for your voice...</p>
+
+  <iframe src="https://app.vectorshift.ai/voicebots/embedded/67934da74b8b59287ba0ff4c" 
+          width="1000px" height="900px" allow="microphone">
+  </iframe>
+
+  <script>
+    const startListeningButton = document.getElementById('startListening');
+    const responseElement = document.getElementById('response');
+
+    // Replace this with your Deepgram API Key
+    const DEEPGRAM_API_KEY = "030b30c1a6f02d9a3fe57c487df896f76397f7db";
+
+    // Enrolled Voice Profile ID (created during the enrollment phase)
+    const VOICE_PROFILE_ID = "0d53913c-7f59-4b8d-8243-0ce1c50480cf";
+
+    // Speech recognition setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      responseElement.textContent = "Sorry, your browser doesn't support speech recognition.";
+      startListeningButton.disabled = true;
+    } else {
+      const recognition = new SpeechRecognition();
+      recognition.lang = "en-US";
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      startListeningButton.addEventListener("click", () => {
+        responseElement.textContent = "Listening...";
+        recognition.start();
+      });
+
+      recognition.addEventListener("result", async (event) => {
+        const transcript = event.results[0][0].transcript.toLowerCase().trim();
+        responseElement.textContent = `Processing your voice: "${transcript}"`;
+
+        try {
+          // Send the audio to Deepgram for verification
+          const verified = await verifyVoice(transcript);
+          if (verified) {
+            responseElement.textContent = "Voice verified! Command recognized.";
+          } else {
+            responseElement.textContent = "Voice not recognized. Access denied.";
+          }
+        } catch (error) {
+          console.error("Error verifying voice:", error);
+          responseElement.textContent = "An error occurred during verification.";
+        }
+      });
+
+      recognition.addEventListener("error", (event) => {
+        responseElement.textContent = `Error: ${event.error}`;
+      });
+
+      recognition.addEventListener("end", () => {
+        responseElement.textContent += " (Click the button to try again.)";
+      });
+    }
+
+    /**
+     * Sends the voice input to Deepgram for verification.
+     * @param {string} text - Transcribed text from SpeechRecognition.
+     * @returns {Promise<boolean>} - Whether the voice matches the enrolled profile.
+     */
+    async function verifyVoice(text) {
+      const audioBlob = await captureAudioBlob(); // Capture voice input as Blob
+      const formData = new FormData();
+      formData.append("audio", audioBlob);
+      formData.append("profile_id", VOICE_PROFILE_ID);
+
+      const response = await fetch("https://api.deepgram.com/v1/voice-verification", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${DEEPGRAM_API_KEY}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+      console.log("Deepgram Response:", result);
+
+      // Check if the voice matches the enrolled profile
+      return result.match && result.match.confidence > 0.9; // Confidence threshold
+    }
+
+    /**
+     * Captures microphone audio and returns it as a Blob.
+     * @returns {Promise<Blob>} - Audio Blob.
+     */
+    async function captureAudioBlob() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      const chunks = [];
+
+      return new Promise((resolve) => {
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = () => resolve(new Blob(chunks, { type: "audio/wav" }));
+        mediaRecorder.start();
+
+        setTimeout(() => mediaRecorder.stop(), 3000); // Record for 3 seconds
+      });
+    }
+  </script>
+</body>
+</html>
